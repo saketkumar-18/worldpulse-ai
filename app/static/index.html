@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorldPulse AI - Daily Global News Intelligence</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Primary">
+    <div class="brand">WorldPulse <span>AI</span></div>
+    <nav id="nav"></nav>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn" aria-label="Toggle navigation">&#9776;</button>
+      <form id="searchForm" class="search" role="search">
+        <input id="q" type="search" placeholder="Search headlines and summaries" maxlength="200" aria-label="Search">
+        <select id="lang" aria-label="Language">
+          <option value="">All languages</option>
+          <option value="en">English</option>
+          <option value="hi">Hindi</option>
+        </select>
+        <select id="since" aria-label="Date range">
+          <option value="24">Last 24 hours</option>
+          <option value="72" selected>Last 3 days</option>
+          <option value="168">Last 7 days</option>
+        </select>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="account" id="account"></div>
+    </header>
+    <section id="view" aria-live="polite"></section>
+    <nav class="pager" id="pager"></nav>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
