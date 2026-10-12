@@ -1,0 +1,28 @@
+# Render Blueprint: free web service. Set secret env vars in the Render dashboard (sync: false).
+services:
+  - type: web
+    name: worldpulse-ai
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_BASE_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: GNEWS_API_KEY
+        sync: false
+      - key: NEWSAPI_API_KEY
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_MODEL
+        value: openai/gpt-oss-20b  # verify against the provider's current free-model list
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "120"

@@ -20,8 +20,18 @@ _engine: Engine | None = None
 _session_factory: sessionmaker | None = None
 
 
+def normalize_database_url(url: str) -> str:
+    """Accept postgres:// and postgresql:// (what hosts like Neon emit) and use the psycopg3 driver."""
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 def configure(database_url: str, create_schema: bool = True) -> Engine:
     global _engine, _session_factory
+    database_url = normalize_database_url(database_url)
     kwargs: dict = {"pool_pre_ping": True}
     is_sqlite = database_url.startswith("sqlite")
     if is_sqlite:
