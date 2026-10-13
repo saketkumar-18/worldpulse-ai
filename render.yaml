@@ -9,7 +9,7 @@ services:
       - key: APP_ENV
         value: production
       - key: APP_BASE_URL
-        sync: false
+        value: https://worldpulse-ai-1wp5.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: ADMIN_TOKEN
