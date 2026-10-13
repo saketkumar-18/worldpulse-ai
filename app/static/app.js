@@ -462,8 +462,42 @@ async function route() {
   return (map[hash] || renderHome)();
 }
 
+// ---- live refresh: detect a new collection and re-render the open news view ----
+const POLL_MS = 120000;                       // check every 2 minutes
+const NON_LIVE_ROUTES = new Set(["#/signin", "#/register", "#/preferences", "#/notifications"]);
+state.lastCollection = null;
+
+function fmtClock(iso) {
+  if (!iso) return "not yet";
+  return new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }) + " IST";
+}
+
+function setFreshness(lastIso) {
+  const s = $("status");
+  s.textContent = lastIso ? `Updated ${fmtClock(lastIso)} · refreshes automatically` : "Waiting for first collection";
+}
+
+async function pollFreshness() {
+  if (document.hidden) return;
+  let health;
+  try { health = await api("/api/health"); } catch (_) { return; }  // offline or sleeping: try again later
+  const latest = health.last_successful_collection;
+  const previous = state.lastCollection;
+  state.lastCollection = latest;
+  setFreshness(latest);
+  if (previous === null || latest === previous || !latest) return;   // first reading or nothing new
+  // A new collection landed: refresh the open news view, but never interrupt a form.
+  const hash = location.hash || "#/";
+  if (NON_LIVE_ROUTES.has(hash)) return;
+  state.page = 1;
+  route();
+}
+
 function init() {
   loadMe();
+  pollFreshness();
+  setInterval(pollFreshness, POLL_MS);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pollFreshness(); });
   $("menuBtn").onclick = () => $("sidebar").classList.toggle("open");
   $("searchForm").onsubmit = (e) => {
     e.preventDefault();

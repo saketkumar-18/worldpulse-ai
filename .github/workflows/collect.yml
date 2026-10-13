@@ -3,7 +3,7 @@
 name: Collect and brief
 on:
   schedule:
-    - cron: "*/30 * * * *"   # collection every 30 minutes
+    - cron: "*/15 * * * *"   # collection every 15 minutes
     - cron: "30 1 * * *"     # morning briefing, 07:00 IST
     - cron: "30 13 * * *"    # evening briefing, 19:00 IST
     - cron: "5,20,35,50 * * * *"   # per-user briefings: sent when each user's chosen time is due
@@ -46,7 +46,7 @@ jobs:
       - name: Run job
         run: |
           case "${{ github.event.schedule || github.event.inputs.job }}" in
-            "*/30 * * * *"|collect) python -m app.scheduler collect ;;
+            "*/15 * * * *"|collect) python -m app.scheduler collect ;;
             "30 1 * * *"|briefing-morning) python -m app.scheduler briefing morning ;;
             "30 13 * * *"|briefing-evening) python -m app.scheduler briefing evening ;;
             "5,20,35,50 * * * *"|personal) python -m app.scheduler personal morning && python -m app.scheduler personal evening ;;
