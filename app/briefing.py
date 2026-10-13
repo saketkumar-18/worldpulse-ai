@@ -110,3 +110,48 @@ def record_briefing(session: Session, edition: str, payload: dict) -> BriefingRu
     session.add(run)
     session.commit()
     return run
+
+
+# ---------- per-user briefings ----------
+
+CATCH_UP_MINUTES = 360  # scheduled runs can be delayed; send up to 6h after the chosen time
+
+
+def briefing_due(local_now: datetime, target_hhmm: str) -> bool:
+    """True once the user's chosen time has passed today, within the catch-up window.
+
+    'Due' does not mean 'send now': duplicate protection is enforced by the notification log.
+    Midnight wrap-around is not handled (a 23:50 briefing is only due 23:50-23:59).
+    """
+    hours, minutes = (int(x) for x in target_hhmm.split(":"))
+    diff = (local_now.hour * 60 + local_now.minute) - (hours * 60 + minutes)
+    return 0 <= diff <= CATCH_UP_MINUTES
+
+
+def personal_sections(session: Session, languages: list[str], countries: list[str],
+                      categories: list[str], per_section: int, since_hours: int = 24) -> list[dict]:
+    """Sections for one user. Categories keep the user's priority order; empty means all sections."""
+    cutoff = utcnow() - timedelta(hours=since_hours)
+    labels = dict(CATEGORIES)
+    sections = []
+    for slug in (categories or SECTION_ORDER):
+        q = select(Article).where(Article.category == slug, Article.published_at >= cutoff)
+        if languages:
+            q = q.where(Article.language.in_(languages))
+        if countries:
+            q = q.where(Article.country.in_(countries))
+        q = q.order_by(Article.importance_score.desc(), Article.published_at.desc()).limit(per_section)
+        stories = [serialize(session, a) for a in session.scalars(q).all()]
+        if stories:
+            sections.append({"slug": slug, "label": labels[slug], "stories": stories})
+    return sections
+
+
+def build_personal_briefing(session: Session, prefs, edition: str, manage_url: str) -> dict:
+    sections = personal_sections(session, prefs.languages or [], prefs.countries or [],
+                                 prefs.categories or [], prefs.stories_per_section or 3)
+    return {
+        "edition": edition, "generated_at": utcnow().isoformat() + "Z", "sections": sections,
+        "publisher_count": len({s["publisher"] for sec in sections for s in sec["stories"]}),
+        "epapers": [], "personal": True, "manage_url": manage_url,
+    }

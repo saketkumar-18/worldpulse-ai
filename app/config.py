@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
+    smtp_use_tls: bool = True  # STARTTLS. Only set false for a local test SMTP sink.
     email_from: str = ""
     notify_recipients: str = ""
 

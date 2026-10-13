@@ -11,12 +11,16 @@ from .config import Settings
 def render_text(payload: dict) -> str:
     lines = [f"WorldPulse AI - {payload['edition'].title()} briefing",
              "Summaries are AI-generated and may contain errors. Read the original article.", ""]
+    if payload.get("personal") and not payload["sections"]:
+        lines.append("No new stories matched your preferences in the last 24 hours.")
     for sec in payload["sections"]:
         lines.append(sec["label"].upper())
         for s in sec["stories"]:
             head = (s.get("summary") or {}).get("headline_en") or s["title"]
             lines.append(f"- {head}  [{s['publisher']}, {s['published_at']}]\n  {s['url']}")
         lines.append("")
+    if payload.get("manage_url"):
+        lines += ["", f"Change or stop these emails: {payload['manage_url']}"]
     return "\n".join(lines)
 
 
@@ -30,6 +34,9 @@ def render_html(payload: dict) -> str:
             url = html.escape(s["url"], quote=True)
             parts.append(f'<li><a href="{url}">{head}</a> &mdash; {html.escape(s["publisher"])}</li>')
         parts.append("</ul>")
+    if payload.get("manage_url"):
+        url = html.escape(payload["manage_url"], quote=True)
+        parts.append(f'<p><a href="{url}">Change or stop these emails</a></p>')
     return "\n".join(parts)
 
 
@@ -45,7 +52,8 @@ def deliver_email(settings: Settings, recipient: str, payload: dict, http=None) 
     msg.add_alternative(render_html(payload), subtype="html")
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as smtp:
-            smtp.starttls()
+            if settings.smtp_use_tls:
+                smtp.starttls()
             if settings.smtp_user:
                 smtp.login(settings.smtp_user, settings.smtp_password)
             smtp.send_message(msg)

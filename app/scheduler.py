@@ -5,6 +5,7 @@ Examples:
     python -m app.scheduler briefing morning   # full cycle + morning briefing (07:00 Asia/Kolkata)
     python -m app.scheduler briefing evening   # full cycle + evening briefing (19:00 Asia/Kolkata)
     python -m app.scheduler purge              # retention cleanup (daily)
+    python -m app.scheduler personal morning   # per-user briefings whose chosen time is due now
 
 Runs are idempotent per recipient per briefing; duplicate sends are blocked by a unique constraint.
 """
@@ -23,7 +24,7 @@ log = logging.getLogger("worldpulse.scheduler")
 
 
 def main(argv: list[str]) -> int:
-    if not argv or argv[0] not in ("collect", "briefing", "purge"):
+    if not argv or argv[0] not in ("collect", "briefing", "purge", "personal"):
         print(__doc__)
         return 2
     settings = get_settings()
@@ -34,6 +35,17 @@ def main(argv: list[str]) -> int:
             removed = purge_old(session, settings.retention_days)
             print(json.dumps({"purged_articles": removed}))
             return 0
+        if argv[0] == "personal":
+            edition = argv[1] if len(argv) > 1 else "morning"
+            if edition not in ("morning", "evening"):
+                print("edition must be morning or evening")
+                return 2
+            from .pipeline import deliver_personal_briefings
+            from .normalize import utcnow
+            from . import db as _db
+            outcome = deliver_personal_briefings(session, settings, edition, now_utc=utcnow())
+            print(json.dumps({"personal_briefings": outcome}))
+            return 0 if outcome["failed"] == 0 else 1
         if argv[0] == "collect":
             report = run_cycle(session, settings, edition=None)
         else:

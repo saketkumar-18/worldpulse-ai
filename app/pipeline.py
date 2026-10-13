@@ -5,7 +5,7 @@ Each stage is isolated: a failing provider or AI call is recorded and the cycle 
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ from .ai import LLMClient, SummaryError, extractive_summary
 from .briefing import build_briefing, recompute_scores, record_briefing
 from .config import Settings
 from .ingest import run_provider
-from .models import AISummary, Article, NotificationLog, Provider, Publisher
+from .models import AISummary, Article, BriefingRun, NotificationLog, Provider, Publisher
 from .normalize import utcnow
 from .notify import deliver_email
 from .providers.gnews import GNewsAdapter
@@ -140,6 +140,76 @@ def deliver_briefing(session: Session, settings: Settings, edition: str, http=No
     return outcome
 
 
+def deliver_personal_briefings(session: Session, settings: Settings, edition: str,
+                               now_utc=None, http=None, public_base: str | None = None) -> dict:
+    """Send each opted-in user their own briefing when their chosen time is due.
+
+    Idempotent per (edition, IST date, email): the notification unique key blocks reruns.
+    A failure for one user is logged and does not stop the others.
+    """
+    from zoneinfo import ZoneInfo
+    from .briefing import briefing_due, build_personal_briefing, edition_date
+    from .models import NotificationPreference, User, UserPreference
+
+    now_utc = now_utc or utcnow()
+    base = (public_base or settings.app_base_url).rstrip("/")
+    outcome = {"considered": 0, "sent": 0, "skipped_not_due": 0, "skipped_empty": 0,
+               "already_sent": 0, "failed": 0}
+    edition_flag = (NotificationPreference.morning_enabled if edition == "morning"
+                    else NotificationPreference.evening_enabled)
+    rows = session.execute(
+        select(User, NotificationPreference, UserPreference)
+        .join(NotificationPreference, NotificationPreference.user_id == User.id)
+        .join(UserPreference, UserPreference.user_id == User.id)
+        .where(User.is_active.is_(True), NotificationPreference.email_enabled.is_(True),
+               edition_flag.is_(True))
+    ).all()
+    for user, notif, prefs in rows:
+        outcome["considered"] += 1
+        try:
+            local_now = now_utc.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(user.timezone))
+            target = getattr(notif, f"{edition}_time")
+            if not briefing_due(local_now, target):
+                outcome["skipped_not_due"] += 1
+                continue
+            local_date = local_now.date().isoformat()
+            key = dict(edition=edition, edition_date=local_date, channel="email", recipient=user.email)
+            if session.scalar(select(NotificationLog.id).filter_by(**key)):
+                outcome["already_sent"] += 1
+                continue
+            payload = build_personal_briefing(session, prefs, edition, manage_url=f"{base}/#/notifications")
+            if not payload["sections"]:
+                outcome["skipped_empty"] += 1
+                # Log the decision so a later run in the same window does not re-evaluate it forever.
+                run = BriefingRun(edition=edition, edition_date=local_date, created_at=utcnow(),
+                                  status="no_content", story_count=0, payload={"user_id": user.id})
+                session.add(run)
+                session.flush()
+                session.add(NotificationLog(briefing_id=run.id, created_at=utcnow(), status="skipped",
+                                            detail="no matching stories", **key))
+                session.commit()
+                continue
+            status, detail = deliver_email(settings, user.email, payload, http=http)
+            run = BriefingRun(edition=edition, edition_date=local_date, created_at=utcnow(),
+                              status="success" if status == "sent" else "failed",
+                              story_count=sum(len(x["stories"]) for x in payload["sections"]),
+                              payload={"user_id": user.id}, error=None if status == "sent" else detail)
+            session.add(run)
+            session.flush()
+            session.add(NotificationLog(briefing_id=run.id, created_at=utcnow(), status=status,
+                                        detail=detail, **key))
+            session.commit()
+            if status == "sent":
+                outcome["sent"] += 1
+            else:
+                outcome["failed"] += 1
+        except Exception as exc:  # one user's failure must not stop the rest
+            session.rollback()
+            outcome["failed"] += 1
+            log.warning("personal briefing failed for user %s: %s", user.id, redact(str(exc)))
+    return outcome
+
+
 def run_cycle(session: Session, settings: Settings, edition: str | None = None,
               http=None, llm: LLMClient | None = None, deliver: bool = True) -> dict:
     """Full cycle used by the scheduler: collect -> summarize -> rank -> briefing -> deliver."""
@@ -151,6 +221,7 @@ def run_cycle(session: Session, settings: Settings, edition: str | None = None,
     report["ranked"] = recompute_scores(session)
     if edition and deliver:
         report["briefing"] = deliver_briefing(session, settings, edition, http=http)
+        report["personal_briefings"] = deliver_personal_briefings(session, settings, edition, http=http)
     report["finished_at"] = utcnow().isoformat() + "Z"
     return report
 
