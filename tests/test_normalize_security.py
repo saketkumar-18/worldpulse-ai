@@ -70,3 +70,13 @@ def test_validate_public_url_allows_public_host():
 def test_redact_removes_api_keys():
     assert "SECRET" not in s.redact("https://x/y?apikey=SECRET&q=1")
     assert "SECRET" not in s.redact("https://x/y?api_key=SECRET")
+
+
+def test_blank_env_values_fall_back_to_defaults(monkeypatch):
+    """Regression: an unset GitHub secret is passed as an empty string and must not break settings."""
+    from app.config import Settings
+    monkeypatch.setenv("SMTP_PORT", "")
+    monkeypatch.setenv("GNEWS_API_KEY", "")
+    st = Settings(_env_file=None)
+    assert st.smtp_port == 587
+    assert st.gnews_api_key == ""
