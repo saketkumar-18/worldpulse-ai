@@ -13,17 +13,27 @@ concurrency:
 jobs:
   trigger:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Collect on the live site
         env:
           APP_URL: ${{ secrets.APP_URL }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
         run: |
-          set -euo pipefail
-          # Free Render instances sleep; the first request can take ~50s. Allow for that.
-          code=$(curl -sS -m 280 -o resp.json -w "%{http_code}" -X POST \
-            -H "X-Admin-Token: $ADMIN_TOKEN" "$APP_URL/api/admin/collect")
-          echo "HTTP $code"
-          cat resp.json | python -c "import sys,json; d=json.load(sys.stdin); print([(r['provider'],r['status'],r.get('inserted')) for r in d['ingestion']])"
-          test "$code" = "200"
+          # Free Render instances return 502/503 while they wake. Retry those with backoff.
+          code=000
+          for attempt in 1 2 3 4; do
+            code=$(curl -sS -m 280 -o resp.json -w "%{http_code}" -X POST \
+              -H "X-Admin-Token: $ADMIN_TOKEN" "$APP_URL/api/admin/collect" || echo 000)
+            echo "attempt $attempt: HTTP $code"
+            case "$code" in
+              502|503|504|000) sleep $((attempt * 30)) ;;
+              *) break ;;
+            esac
+          done
+          if [ "$code" != "200" ]; then
+            echo "collection failed with HTTP $code"
+            head -c 300 resp.json 2>/dev/null || true
+            exit 1
+          fi
+          python -c "import json; d=json.load(open('resp.json')); print([(r['provider'],r['status'],r.get('inserted')) for r in d['ingestion']])"
